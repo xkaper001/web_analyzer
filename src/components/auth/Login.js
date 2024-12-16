@@ -1,20 +1,35 @@
 import React, { useEffect, useState } from "react";
 import "../../styles/Login.css";
 import { Link, useNavigate } from "react-router-dom";
+import axios from "axios";
 
 import { auth } from "../../config/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { getError } from "../../logic/utils";
+import { logSecurityEvent } from "../../data/securityLogger";
 
 function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
+  const [failedAttempts, setFailedAttempts] = useState(0);
   const [processing, setProcessing] = useState(false);
+  const [ipAddress, setIpAddress] = useState("")
 
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+    const fetchIpAddress = async () => {
+      try {
+        const response = await axios.get("https://api.ipify.org?format=json");
+        setIpAddress(response.data.ip); // Set the IP address
+      } catch (error) {
+        console.error("Error fetching IP address:", error);
+      }
+    };
+    fetchIpAddress();
+  }, []);
 
   const signIn = (event) => {
     setProcessing(true);
@@ -24,11 +39,21 @@ function Login() {
     signInWithEmailAndPassword(auth, email, password)
       .then((auth) => {
         // User Login Successful
-        if (auth) navigate("/");
+        if (auth) {
+          navigate("/");
+          setFailedAttempts(0);
+          navigate("/");
+        };
       })
       .catch((err) => {
         // User Login Unsuccessful
         setProcessing(false);
+        setFailedAttempts((prev) => prev + 1);
+        if (failedAttempts >= 2) {
+          logSecurityEvent("auth_failure_multiple", email, "Multiple failed login attempts", "ipAddress");
+        } else {
+          logSecurityEvent("auth_failure", email, "Failed Security Event", "ipAddress");
+        }
         setError(getError(err.message));
       });
   };
